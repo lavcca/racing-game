@@ -1,0 +1,12 @@
+import { chromium } from '@playwright/test';
+const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const page=await browser.newPage({viewport:{width:960,height:540},deviceScaleFactor:.5});
+page.on('pageerror',error=>console.log('PAGE ERROR',error.message));
+await page.goto('http://127.0.0.1:5173/');
+console.log('MENU',await page.locator('.menu-footer').innerText());
+await page.locator('.circuit-card').first().click();
+await page.waitForTimeout(1000);
+console.log('BODY',await page.locator('body').innerText());
+console.log('RENDER SIZE',await page.locator('#game-canvas').evaluate(c=>[c.width,c.height,devicePixelRatio]));
+await page.screenshot({path:'test-results/inspect.png'});
+await browser.close();

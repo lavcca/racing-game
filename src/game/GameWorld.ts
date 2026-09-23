@@ -1,18 +1,19 @@
-import { Quaternion, Vector3 } from 'three';
 import Stats from 'stats.js';
+import { InstancedMesh, Mesh, Quaternion, Texture, Vector3 } from 'three';
 
 import { Loop } from '../core/Loop';
 import { Renderer } from '../core/Renderer';
 import { SceneManager } from '../core/SceneManager';
 import { InputManager } from '../input/InputManager';
+import { GameMap } from '../maps/types';
 import { Hud } from '../ui/Hud';
 import { MiniMap, MiniMapPoint } from '../ui/MiniMap';
 import { ScoreBurst } from '../ui/ScoreBurst';
+
 import { AIController, AIProfile } from './AIController';
 import { RaceManager, RacerEntry } from './RaceManager';
 import { Track } from './Track';
 import { Vehicle, VehicleConfig } from './Vehicle';
-import { GameMap } from '../maps/types';
 
 const FORWARD_REFERENCE = new Vector3(0, 0, 1);
 const UP = new Vector3(0, 1, 0);
@@ -51,9 +52,13 @@ export class GameWorld {
   private playerId = 'player';
   private playerVehicle!: Vehicle;
   private readonly totalLaps = 3;
-  private readonly raceDuration = 180;
+  private readonly raceDuration = 600;
   private remainingTime = this.raceDuration;
   private raceOver = false;
+  private paused = false;
+  private countdown = 3;
+  private readonly banner = document.createElement('div');
+  private readonly toolbar = document.createElement('div');
   private readonly collisionRadius = 2.6;
   private readonly collisionVector = new Vector3();
   private readonly collisionOpposite = new Vector3();
@@ -61,7 +66,7 @@ export class GameWorld {
   constructor(canvas: HTMLCanvasElement, map: GameMap) {
     this.map = map;
     this.renderer = new Renderer(canvas);
-    this.sceneManager = new SceneManager();
+    this.sceneManager = new SceneManager(map.id === 'desert-sprint');
     this.track = new Track(map.trackConfig);
     this.raceManager = new RaceManager(this.track, this.totalLaps);
 
@@ -81,7 +86,18 @@ export class GameWorld {
     this.stats.dom.style.left = '0';
     this.stats.dom.style.top = '0';
 
-    document.body.appendChild(this.stats.dom);
+    // The FPS panel is opt-in so it does not cover the minimap.
+    if (new URLSearchParams(location.search).has('debug')) document.body.appendChild(this.stats.dom);
+    this.banner.className = 'race-banner';
+    this.toolbar.className = 'race-toolbar';
+    this.toolbar.innerHTML = '<span>WASD / 방향키 · SPACE 감속 · R 복귀 · P 일시정지</span><button data-action="pause">일시정지</button><button data-action="recover">트랙 복귀</button><button data-action="menu">트랙 선택</button>';
+    this.toolbar.querySelector('[data-action="pause"]')?.addEventListener('click', this.togglePause);
+    this.toolbar.querySelector('[data-action="recover"]')?.addEventListener('click', this.recover);
+    this.toolbar.querySelector('[data-action="menu"]')?.addEventListener('click', () => location.reload());
+    document.body.append(this.banner, this.toolbar);
+    window.addEventListener('keydown', this.handleCommand);
+    window.addEventListener('blur', this.handleBlur);
+    document.addEventListener('visibilitychange', this.handleVisibility);
 
     window.addEventListener('resize', this.handleResize);
     this.handleResize();
@@ -94,7 +110,7 @@ export class GameWorld {
       throw new Error('Player vehicle failed to initialize');
     }
     this.inputManager.subscribe((state) => {
-      if (this.raceOver) {
+      if (this.raceOver || this.paused || this.countdown > 0) {
         return;
       }
       this.playerVehicle.setInput(state);
@@ -107,12 +123,27 @@ export class GameWorld {
 
   dispose() {
     this.loop.stop();
+    this.sceneManager.scene.traverse((object) => {
+      if (object instanceof Mesh) {
+        object.geometry.dispose();
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => {
+          for (const value of Object.values(material)) if (value instanceof Texture) value.dispose();
+          material.dispose();
+        });
+        if (object instanceof InstancedMesh) object.dispose();
+      }
+    });
     this.renderer.dispose();
     this.inputManager.dispose();
     this.hud.dispose();
     this.miniMap.dispose();
     this.scoreBurst.dispose();
-    document.body.removeChild(this.stats.dom);
+    this.stats.dom.remove();
+    this.banner.remove(); this.toolbar.remove();
+    window.removeEventListener('keydown', this.handleCommand);
+    window.removeEventListener('blur', this.handleBlur);
+    document.removeEventListener('visibilitychange', this.handleVisibility);
     window.removeEventListener('resize', this.handleResize);
   }
 
@@ -128,7 +159,7 @@ export class GameWorld {
     const grid: GridSlot[] = [
       {
         id: 'player',
-        name: 'You',
+        name: '나',
         lane: 0,
         row: 0,
         type: 'player',
@@ -147,12 +178,12 @@ export class GameWorld {
         vehicleConfig: {
           bodyColor: 0xe94f37,
           accentColor: 0xfee08b,
-          stats: { maxOnTrackSpeed: 62, acceleration: 39, turnRate: 2.3 }
+          stats: { maxOnTrackSpeed: 76, acceleration: 50, turnRate: 2.3 }
         },
         aiProfile: {
           id: 'ari',
           name: 'Ari Blaze',
-          targetSpeedKph: 220,
+          targetSpeedKph: 270,
           lookAheadDistance: 14,
           corneringSensitivity: 1.05,
           recoveryBias: 0.6
@@ -167,12 +198,12 @@ export class GameWorld {
         vehicleConfig: {
           bodyColor: 0x8c54ff,
           accentColor: 0xf8f9ff,
-          stats: { maxOnTrackSpeed: 56, acceleration: 33, turnRate: 2.8 }
+          stats: { maxOnTrackSpeed: 72, acceleration: 47, turnRate: 2.8 }
         },
         aiProfile: {
           id: 'nova',
           name: 'Nova Drift',
-          targetSpeedKph: 205,
+          targetSpeedKph: 258,
           lookAheadDistance: 13,
           corneringSensitivity: 0.85,
           recoveryBias: 0.7
@@ -187,12 +218,12 @@ export class GameWorld {
         vehicleConfig: {
           bodyColor: 0x2ecc71,
           accentColor: 0xd1ffd6,
-          stats: { maxOnTrackSpeed: 54, acceleration: 38, turnRate: 2.1 }
+          stats: { maxOnTrackSpeed: 68, acceleration: 45, turnRate: 2.1 }
         },
         aiProfile: {
           id: 'rhett',
           name: 'Rhett Torque',
-          targetSpeedKph: 195,
+          targetSpeedKph: 245,
           lookAheadDistance: 10,
           corneringSensitivity: 1.05,
           recoveryBias: 0.8
@@ -238,21 +269,29 @@ export class GameWorld {
     this.sceneManager.camera.lookAt(startPosition);
   }
 
-  private update = (delta: number) => {
+  private update = (delta: number, elapsed: number) => {
     this.stats.begin();
 
-    if (!this.raceOver) {
-      this.remainingTime = Math.max(0, this.remainingTime - delta);
+    let raceElapsed = elapsed;
+    if (!this.paused && this.countdown > 0) {
+      raceElapsed = Math.max(0, elapsed - this.countdown);
+      this.countdown = Math.max(0, this.countdown - elapsed);
+      this.banner.textContent = this.countdown > 0 ? String(Math.ceil(this.countdown)) : '';
+      if (this.countdown === 0) this.playerVehicle.setInput(this.inputManager.getState());
+    }
+    const active = !this.paused && this.countdown === 0;
+    if (!this.raceOver && active) {
+      this.remainingTime = Math.max(0, this.remainingTime - raceElapsed);
       if (this.remainingTime <= 0) {
         this.finishRace();
       }
     }
 
-    if (!this.raceOver) {
+    if (!this.raceOver && active) {
       this.aiControllers.forEach((controller) => controller.update(delta));
 
       this.racers.forEach((racer) => {
-        const onTrack = this.track.isPointOnTrack(racer.vehicle.mesh.position);
+        const onTrack = racer.vehicle.isOnSurface(this.track.isPointOnTrack);
         racer.vehicle.update(delta, onTrack);
       });
 
@@ -260,6 +299,7 @@ export class GameWorld {
 
       this.racers.forEach((racer) => {
         const progress = this.track.getProgress(racer.vehicle.mesh.position);
+        progress.onTrack = racer.vehicle.isOnSurface(this.track.isPointOnTrack);
         const progressUpdate = this.raceManager.updateRacerProgress(racer.id, progress);
         if (racer.id === this.playerId && progressUpdate.scoreEarned > 0) {
           this.hud.flashScore(progressUpdate.scoreEarned);
@@ -268,9 +308,14 @@ export class GameWorld {
       });
     }
 
+    if (!this.raceOver && this.raceManager.getRacerStatus(this.playerId)?.finished) this.finishRace();
     const leaderboard = this.raceManager.getLeaderboard();
     const playerStatus = this.raceManager.getRacerStatus(this.playerId);
 
+    if (playerStatus && active && !this.raceOver) {
+      this.banner.classList.toggle('off-road', !playerStatus.onTrack);
+      this.banner.textContent = playerStatus.onTrack ? '' : '트랙 이탈 · 감속 중 (약 20 km/h)';
+    }
     if (playerStatus) {
       const playerEntry = leaderboard.find((entry) => entry.id === this.playerId);
       const position = playerEntry ? playerEntry.position : 1;
@@ -303,10 +348,13 @@ export class GameWorld {
       x: racer.vehicle.mesh.position.x,
       z: racer.vehicle.mesh.position.z,
       color: racer.vehicle.getBodyColorHex(),
-      isPlayer: racer.id === this.playerId
+      isPlayer: racer.id === this.playerId,
+      heading: racer.vehicle.mesh.rotation.y,
+      speed: racer.vehicle.getSpeedKph()
     }));
     this.miniMap.update(minimapPoints);
 
+    this.sceneManager.follow(this.playerVehicle.mesh.position);
     this.updateCamera(delta);
     this.renderer.render(this.sceneManager.scene, this.sceneManager.camera);
     this.stats.end();
@@ -350,7 +398,6 @@ export class GameWorld {
     }
 
     this.raceOver = true;
-    this.remainingTime = 0;
     this.racers.forEach((racer) => racer.vehicle.halt());
     const finalStandings = this.raceManager.getLeaderboard();
     this.hud.showFinalResults(
@@ -368,14 +415,44 @@ export class GameWorld {
 
     this.cameraTarget.copy(this.playerVehicle.mesh.position);
     this.cameraForward.copy(FORWARD_REFERENCE).applyQuaternion(this.playerVehicle.mesh.quaternion).normalize();
-    this.cameraOffset.copy(this.cameraForward).multiplyScalar(-20);
-    this.cameraOffset.y = 9;
+    this.cameraOffset.copy(this.cameraForward).multiplyScalar(-13);
+    this.cameraOffset.y = 5.5;
 
     this.desiredCameraPosition.copy(this.cameraTarget).add(this.cameraOffset);
     const lerpFactor = 1 - Math.pow(0.12, delta * 60);
     camera.position.lerp(this.desiredCameraPosition, lerpFactor);
     camera.lookAt(this.cameraTarget);
   }
+
+  private togglePause = () => {
+    if (this.raceOver) return;
+    this.paused = !this.paused;
+    this.inputManager.clear();
+    this.playerVehicle.setInput(this.inputManager.getState());
+    this.banner.textContent = this.paused ? '일시정지' : '';
+    const button = this.toolbar.querySelector('[data-action="pause"]');
+    if (button) button.textContent = this.paused ? '계속하기' : '일시정지';
+  };
+
+  private recover = () => {
+    if (this.raceOver || this.paused || this.countdown > 0) return;
+    const progress = this.track.getProgress(this.playerVehicle.mesh.position);
+    const position = this.track.getPointAtDistance(progress.distance).setY(0.4);
+    const direction = this.track.getDirectionAtDistance(progress.distance);
+    this.playerVehicle.halt();
+    this.inputManager.clear();
+    this.playerVehicle.setTransform(position, new Quaternion().setFromUnitVectors(FORWARD_REFERENCE, direction));
+    this.remainingTime = Math.max(0, this.remainingTime - 3);
+  };
+
+  private handleCommand = (event: KeyboardEvent) => {
+    if (event.repeat) return;
+    if (event.code === 'KeyP' || event.code === 'Escape') this.togglePause();
+    if (event.code === 'KeyR') this.recover();
+  };
+
+  private handleBlur = () => { if (!this.paused && !this.raceOver) this.togglePause(); };
+  private handleVisibility = () => { if (document.hidden) this.handleBlur(); };
 
   private handleResize = () => {
     this.sceneManager.onResize();

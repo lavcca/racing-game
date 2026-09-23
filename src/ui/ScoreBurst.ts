@@ -18,6 +18,7 @@ export class ScoreBurst {
     this.container.style.alignItems = 'center';
     this.container.style.gap = '8px';
     this.container.style.zIndex = '900';
+    this.container.setAttribute('aria-live', 'polite');
 
     document.body.appendChild(this.container);
   }
@@ -33,14 +34,17 @@ export class ScoreBurst {
     entry.style.transform = 'translateY(20px) scale(0.9)';
     entry.style.letterSpacing = '0.06em';
     entry.style.color = emphasis ? '#ffd166' : '#ffe27a';
+    entry.style.filter = 'drop-shadow(0 0 18px rgba(255, 210, 85, .8))';
+    entry.style.fontSize = emphasis ? '42px' : '32px';
+    entry.setAttribute('aria-label', `${amount} points earned`);
 
     this.container.appendChild(entry);
 
     const animation = entry.animate(
       [
         { opacity: 0, transform: 'translateY(24px) scale(0.8)' },
-        { opacity: 1, transform: 'translateY(0) scale(1)' },
-        { opacity: 0, transform: 'translateY(-28px) scale(0.95)' }
+        { opacity: 1, transform: 'translateY(0) scale(1.08)' },
+        { opacity: 0, transform: 'translateY(-42px) scale(1.18)' }
       ],
       {
         duration: emphasis ? 1400 : 1000,

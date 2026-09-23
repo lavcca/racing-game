@@ -1,4 +1,4 @@
-export type UpdateCallback = (delta: number) => void;
+export type UpdateCallback = (delta: number, elapsed: number) => void;
 
 export class Loop {
   private rafId: number | null = null;
@@ -16,10 +16,11 @@ export class Loop {
 
     this.lastTime = performance.now();
     const step = (time: number) => {
-      const delta = (time - this.lastTime) / 1000;
+      const elapsed = Math.max(0, (time - this.lastTime) / 1000);
+      const delta = Math.min(elapsed, 0.05);
       this.lastTime = time;
 
-      this.update(delta);
+      this.update(delta, elapsed);
       this.rafId = requestAnimationFrame(step);
     };
 

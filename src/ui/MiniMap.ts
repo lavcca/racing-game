@@ -5,6 +5,8 @@ export interface MiniMapPoint {
   z: number;
   color: string;
   isPlayer: boolean;
+  heading?: number;
+  speed?: number;
 }
 
 export class MiniMap {
@@ -29,6 +31,7 @@ export class MiniMap {
     this.scale = drawable / Math.max(boundsWidth, boundsDepth);
 
     this.canvas = document.createElement('canvas');
+    this.canvas.className = 'minimap';
     this.canvas.width = size;
     this.canvas.height = size;
 
@@ -84,9 +87,24 @@ export class MiniMap {
       this.ctx.fill();
 
       if (point.isPlayer) {
+        this.ctx.save();
+        this.ctx.translate(projected.x, projected.y);
+        this.ctx.rotate(point.heading ?? 0);
+        this.ctx.fillStyle = '#c7fa65';
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, -12);
+        this.ctx.lineTo(-6, 7);
+        this.ctx.lineTo(0, 4);
+        this.ctx.lineTo(6, 7);
+        this.ctx.closePath();
+        this.ctx.fill();
+        this.ctx.restore();
         this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-        this.ctx.lineWidth = 1;
+        this.ctx.lineWidth = 2;
         this.ctx.stroke();
+        this.ctx.fillStyle = '#c7fa65';
+        this.ctx.font = '700 10px system-ui';
+        this.ctx.fillText('YOU', projected.x + 8, projected.y - 8);
       }
     }
   }

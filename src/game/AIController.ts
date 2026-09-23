@@ -38,6 +38,7 @@ export class AIController {
   private speedMultiplier = 1;
   private speedTimer = MathUtils.randFloat(1.5, 3.2);
   private jitterPhase = Math.random() * Math.PI * 2;
+  private throttlePulse = Math.random() * Math.PI * 2;
 
   private readonly maxOffset: number;
 
@@ -50,6 +51,7 @@ export class AIController {
 
   update(delta: number) {
     const progress = this.track.getProgress(this.vehicle.mesh.position);
+    progress.onTrack = this.vehicle.isOnSurface(this.track.isPointOnTrack);
     const speed = Math.abs(this.vehicle.getSignedSpeed());
 
     this.lateralTimer -= delta;
@@ -67,12 +69,13 @@ export class AIController {
     this.speedTimer -= delta;
     if (this.speedTimer <= 0) {
       const aggressiveFactor = MathUtils.mapLinear(this.profile.corneringSensitivity, 0.6, 1.4, 1.08, 0.92);
-      this.speedMultiplier = MathUtils.clamp(MathUtils.randFloat(0.82, 1.15) * aggressiveFactor, 0.75, 1.2);
+      this.speedMultiplier = MathUtils.clamp(MathUtils.randFloat(0.94, 1.18) * aggressiveFactor, 0.88, 1.24);
       this.speedTimer = MathUtils.randFloat(1.4, 3.5);
     }
 
     this.jitterPhase += delta * MathUtils.randFloat(1.6, 2.4);
     const jitter = Math.sin(this.jitterPhase) * 0.35;
+    this.throttlePulse += delta * MathUtils.randFloat(1.1, 2.1);
 
     const dynamicLookAhead = this.profile.lookAheadDistance + speed * delta * 6.5;
     const desiredDistance = (progress.distance + dynamicLookAhead) % this.track.getTotalLength();
@@ -96,7 +99,8 @@ export class AIController {
     const baseSpeed = this.profile.targetSpeedKph / 3.6;
     const cornerFactor = Math.max(0.32, 1 - angleToTarget * (this.profile.corneringSensitivity + Math.abs(clampedOffset) * 0.04));
     const lateralPenalty = 1 - Math.min(0.4, Math.abs(clampedOffset) / (this.maxOffset * 2.5));
-    let desiredSpeed = baseSpeed * cornerFactor * lateralPenalty * this.speedMultiplier;
+    const throttleVariation = 1 + Math.sin(this.throttlePulse) * 0.055 + Math.sin(this.throttlePulse * 0.37) * 0.035;
+    let desiredSpeed = baseSpeed * cornerFactor * lateralPenalty * this.speedMultiplier * throttleVariation;
 
     if (!progress.onTrack) {
       desiredSpeed *= this.profile.recoveryBias * 0.6;
@@ -115,9 +119,10 @@ export class AIController {
     const wanderInfluence = MathUtils.clamp(clampedOffset / this.maxOffset, -0.35, 0.35);
     crossY += wanderInfluence;
 
-    if (crossY > 0.02) {
+    const steeringDeadband = 0.045 + Math.min(0.06, speed * 0.001);
+    if (crossY > steeringDeadband) {
       input.left = true;
-    } else if (crossY < -0.02) {
+    } else if (crossY < -steeringDeadband) {
       input.right = true;
     }
 

@@ -1,37 +1,53 @@
-type InputState = {
-  forward: boolean;
-  backward: boolean;
-  left: boolean;
-  right: boolean;
-};
+import type { InputState } from '../game/Vehicle';
 
-const defaultState: InputState = {
-  forward: false,
-  backward: false,
-  left: false,
-  right: false
+const mapping: Record<string, keyof InputState> = {
+  ArrowUp: 'forward', KeyW: 'forward', ArrowDown: 'backward', KeyS: 'backward',
+  Space: 'backward', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right'
 };
 
 export class InputManager {
-  private state: InputState = { ...defaultState };
-  private listeners: Array<(state: InputState) => void> = [];
+  private readonly pressed = new Set<string>();
+  private readonly listeners: Array<(state: InputState) => void> = [];
+  private readonly touch = document.createElement('div');
 
   constructor() {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('blur', this.clear);
+    this.touch.className = 'touch-controls';
+    for (const [code, label] of [['ArrowLeft', '◀'], ['ArrowRight', '▶'], ['Space', '감속'], ['ArrowUp', '가속']]) {
+      const button = document.createElement('button');
+      button.textContent = label;
+      button.setAttribute('aria-label', label === '◀' ? '좌회전' : label === '▶' ? '우회전' : label);
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault(); button.setPointerCapture(event.pointerId);
+        this.pressed.add(`touch:${code}`); this.broadcast();
+      });
+      for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        button.addEventListener(type, () => { this.pressed.delete(`touch:${code}`); this.broadcast(); });
+      }
+      this.touch.appendChild(button);
+    }
+    document.body.appendChild(this.touch);
   }
 
   dispose() {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('blur', this.clear);
+    this.touch.remove(); this.listeners.length = 0;
   }
 
-  subscribe(listener: (state: InputState) => void) {
-    this.listeners.push(listener);
-  }
+  subscribe(listener: (state: InputState) => void) { this.listeners.push(listener); }
+  clear = () => { this.pressed.clear(); this.broadcast(); };
 
-  getState() {
-    return { ...this.state };
+  getState(): InputState {
+    const state = { forward: false, backward: false, left: false, right: false };
+    for (const code of this.pressed) {
+      const action = mapping[code.replace('touch:', '')];
+      if (action) state[action] = true;
+    }
+    return state;
   }
 
   private broadcast() {
@@ -40,52 +56,12 @@ export class InputManager {
   }
 
   private handleKeyDown = (event: KeyboardEvent) => {
-    switch (event.code) {
-      case 'ArrowUp':
-      case 'KeyW':
-        this.state.forward = true;
-        break;
-      case 'ArrowDown':
-      case 'KeyS':
-        this.state.backward = true;
-        break;
-      case 'ArrowLeft':
-      case 'KeyA':
-        this.state.left = true;
-        break;
-      case 'ArrowRight':
-      case 'KeyD':
-        this.state.right = true;
-        break;
-      default:
-        return;
-    }
-
-    this.broadcast();
+    if (!mapping[event.code]) return;
+    event.preventDefault(); this.pressed.add(event.code); this.broadcast();
   };
 
   private handleKeyUp = (event: KeyboardEvent) => {
-    switch (event.code) {
-      case 'ArrowUp':
-      case 'KeyW':
-        this.state.forward = false;
-        break;
-      case 'ArrowDown':
-      case 'KeyS':
-        this.state.backward = false;
-        break;
-      case 'ArrowLeft':
-      case 'KeyA':
-        this.state.left = false;
-        break;
-      case 'ArrowRight':
-      case 'KeyD':
-        this.state.right = false;
-        break;
-      default:
-        return;
-    }
-
-    this.broadcast();
+    if (!mapping[event.code]) return;
+    event.preventDefault(); this.pressed.delete(event.code); this.broadcast();
   };
 }

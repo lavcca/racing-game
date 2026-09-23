@@ -65,11 +65,12 @@ export class RaceManager {
   }
 
   registerRacer(racer: RacerEntry) {
+    const initial = this.track.getProgress(racer.vehicle.mesh.position);
     this.racers.set(racer.id, racer);
     this.internalState.set(racer.id, {
       lap: 1,
       finished: false,
-      lastNormalized: 0,
+      lastNormalized: initial.normalized,
       totalDistance: 0,
       checkpointIndex: 0,
       checkpointsCleared: 0,
@@ -97,38 +98,27 @@ export class RaceManager {
     let scoreEarned = 0;
     let lapCompleted = false;
 
-    if (!state.finished) {
-      if (deltaNormalized < -0.5) {
+    // Only the next checkpoint, reached forward on the road, may award points.
+    // Crossing the start line backwards or oscillating over a marker cannot farm score.
+    let forwardDelta = deltaNormalized;
+    if (forwardDelta < -0.5) forwardDelta += 1;
+    if (forwardDelta > 0.5) forwardDelta -= 1;
+    const nextCheckpoint = (state.checkpointIndex + 1) % this.checkpointCount;
+    const previousCheckpoint = Math.floor(state.lastNormalized * this.checkpointCount) % this.checkpointCount;
+    if (!state.finished && progress.onTrack && state.onTrack && forwardDelta > 0 &&
+        forwardDelta < 0.1 && progress.checkpointIndex !== previousCheckpoint &&
+        progress.checkpointIndex === nextCheckpoint) {
+      state.checkpointIndex = nextCheckpoint;
+      state.checkpointsCleared += 1;
+      checkpointsPassed = 1;
+      scoreEarned = RaceManager.CHECKPOINT_POINTS;
+      if (nextCheckpoint === 0) {
         state.lap += 1;
-        if (state.lap > this.totalLaps) {
-          state.finished = true;
-          state.lastNormalized = 1;
-          scoreEarned += RaceManager.LAP_COMPLETION_POINTS;
-          state.score += RaceManager.LAP_COMPLETION_POINTS;
-          lapCompleted = true;
-        }
-        if (!state.finished) {
-          scoreEarned += RaceManager.LAP_COMPLETION_POINTS;
-          state.score += RaceManager.LAP_COMPLETION_POINTS;
-          lapCompleted = true;
-        }
-      } else if (deltaNormalized > 0.5) {
-        state.lap = Math.max(1, state.lap - 1);
+        state.finished = state.lap > this.totalLaps;
+        lapCompleted = true;
+        scoreEarned += RaceManager.LAP_COMPLETION_POINTS;
       }
-
-      if (progress.checkpointIndex !== state.checkpointIndex) {
-        const diff = progress.checkpointIndex - state.checkpointIndex;
-        const wrappedDiff = diff < 0 ? diff + this.checkpointCount : diff;
-        const movingForward = deltaNormalized < 0.5;
-        state.checkpointIndex = progress.checkpointIndex;
-        if (movingForward && wrappedDiff > 0) {
-          state.checkpointsCleared += wrappedDiff;
-          checkpointsPassed = wrappedDiff;
-          const checkpointPoints = wrappedDiff * RaceManager.CHECKPOINT_POINTS;
-          scoreEarned += checkpointPoints;
-          state.score += checkpointPoints;
-        }
-      }
+      state.score += scoreEarned;
     }
 
     state.lastNormalized = state.finished ? 1 : normalizedWrapped;
@@ -137,7 +127,7 @@ export class RaceManager {
 
     const completedPortion = state.finished
       ? this.totalLaps
-      : state.lap - 1 + state.lastNormalized;
+      : this.getRaceProgressValue(id);
     state.totalDistance = completedPortion * this.track.getTotalLength();
 
     return { checkpointsPassed, scoreEarned, lapCompleted };
@@ -159,7 +149,7 @@ export class RaceManager {
       type: racer.type,
       lap: currentLap,
       finished: state.finished,
-      progressPercent: Math.min(1, (state.lap - 1 + state.lastNormalized) / this.totalLaps) * 100,
+      progressPercent: state.finished ? 100 : Math.min(1, this.getRaceProgressValue(id) / this.totalLaps) * 100,
       progressNormalized: state.lastNormalized,
       lapsRemaining,
       checkpointsCleared: state.checkpointsCleared,
@@ -174,7 +164,7 @@ export class RaceManager {
   getLeaderboard(): LeaderboardEntry[] {
     const standings: LeaderboardEntry[] = [];
 
-    for (const [id, racer] of this.racers.entries()) {
+    for (const id of this.racers.keys()) {
       const status = this.getRacerStatus(id);
       if (!status) {
         continue;
@@ -225,6 +215,10 @@ export class RaceManager {
       return this.totalLaps + 1;
     }
 
-    return state.lap - 1 + state.lastNormalized;
+    const start = state.checkpointIndex / this.checkpointCount;
+    const end = (state.checkpointIndex + 1) / this.checkpointCount;
+    const trustedProgress = state.lastNormalized >= start && state.lastNormalized < end
+      ? state.lastNormalized : start;
+    return state.lap - 1 + trustedProgress;
   }
 }

@@ -47,6 +47,7 @@ const formatTime = (seconds: number) => {
 export class Hud {
   private readonly container: HTMLDivElement;
   private readonly ticker: ScoreTicker;
+  private readonly content = document.createElement('div');
   private readonly finalOverlay: HTMLDivElement;
 
   constructor() {
@@ -68,6 +69,12 @@ export class Hud {
 
     document.body.appendChild(this.container);
 
+    this.container.className = 'race-hud';
+    const profiles = document.createElement('div');
+    profiles.className = 'driver-profiles';
+    profiles.innerHTML = '<div class="driver-profile player-profile"><img src="/avatars/player-profile.jpg" alt="플레이어 프로필"><span><b>YOU</b><small>PLAYER</small></span></div><div class="driver-profile rival-profile"><img src="/avatars/rival-profile.jpg" alt="경쟁자 프로필"><span><b>RIVAL</b><small>AI PACK</small></span></div>';
+    this.container.appendChild(profiles);
+    this.container.appendChild(this.content);
     this.ticker = new ScoreTicker(this.container);
 
     this.finalOverlay = document.createElement('div');
@@ -96,21 +103,21 @@ export class Hud {
     const timeDisplay = formatTime(state.timeRemaining);
 
     const lines = [
-      `<strong>Time Left:</strong> ${timeDisplay}`,
-      `<strong>Score:</strong> ${state.score}`,
-      `<strong>Speed:</strong> ${roundedSpeed} km/h`,
-      `<strong>Lap:</strong> ${state.lap} / ${state.totalLaps} (left: ${state.lapsRemaining})`,
-      `<strong>Progress:</strong> ${progress}%`,
-      `<strong>Checkpoint:</strong> ${checkpointDisplay}`,
-      `<strong>Position:</strong> ${state.position} / ${state.racerCount}`
+      `<strong>남은 시간:</strong> ${timeDisplay}`,
+      `<strong>점수:</strong> ${state.score}`,
+      `<strong>속도:</strong> ${roundedSpeed} km/h`,
+      `<strong>랩:</strong> ${state.lap} / ${state.totalLaps} (left: ${state.lapsRemaining})`,
+      `<strong>진행률:</strong> ${progress}%`,
+      `<strong>체크포인트:</strong> ${checkpointDisplay}`,
+      `<strong>순위:</strong> ${state.position} / ${state.racerCount}`
     ];
 
     if (state.offTrack && !state.raceOver) {
-      lines.push('<em>Off track – grip reduced</em>');
+      lines.push('<em>트랙 이탈 · R 키로 복귀</em>');
     }
 
     if (state.raceOver) {
-      lines.push('<br /><strong>Race Complete</strong>');
+      lines.push('<br /><strong>레이스 종료</strong>');
     }
 
     if (state.leaderboard.length > 0) {
@@ -123,11 +130,11 @@ export class Hud {
         )
         .join('<br />');
 
-      lines.push('<br /><strong>Top Scores</strong>');
+      lines.push('<br /><strong>실시간 순위</strong>');
       lines.push(leaderboardLines);
     }
 
-    this.container.innerHTML = lines.join('<br />');
+    this.content.innerHTML = lines.join('<br />');
   }
 
   flashScore(amount: number) {
@@ -144,9 +151,10 @@ export class Hud {
 
     this.finalOverlay.innerHTML = `
       <div style="padding:32px 48px; background:rgba(0, 0, 0, 0.65); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,0.45); max-width:480px;">
-        <h2 style="margin:0 0 12px; font-size:32px;">Race Results</h2>
-        <p style="margin:0 0 16px; color:#d1d1ff;">Highest score wins the event.</p>
+        <h2 style="margin:0 0 12px; font-size:32px;">레이스 결과</h2>
+        <p style="margin:0 0 16px; color:#d1d1ff;">체크포인트와 랩 점수를 합산한 결과입니다.</p>
         <ol style="margin:0; padding:0;">${list}</ol>
+        <button class="primary" onclick="location.reload()">다시 플레이 · 트랙 선택</button>
       </div>
     `;
     this.finalOverlay.style.display = 'flex';
